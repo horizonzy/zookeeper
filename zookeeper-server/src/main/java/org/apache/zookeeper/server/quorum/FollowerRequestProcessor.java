@@ -19,9 +19,9 @@
 package org.apache.zookeeper.server.quorum;
 
 import java.io.IOException;
-import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs.OpCode;
+import org.apache.zookeeper.common.BatchedArrayBlockingQueue;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
 import org.apache.zookeeper.server.ZooKeeperCriticalThread;
@@ -42,7 +42,7 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
 
     RequestProcessor nextProcessor;
 
-    LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
+    BatchedArrayBlockingQueue<Request> queuedRequests = new BatchedArrayBlockingQueue<>(10000);
 
     boolean finished = false;
 
@@ -55,8 +55,17 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
     @Override
     public void run() {
         try {
+            Request[] localRequests = new Request[1024];
+            int requestLength = 0;
+            int requestIndex = 0;
+            Request request = null;
             while (!finished) {
-                Request request = queuedRequests.take();
+                if (request == null) {
+                    requestIndex = 0;
+                    requestLength = queuedRequests.takeAll(localRequests);
+                    request = localRequests[requestIndex];
+                    localRequests[requestIndex++] = null;
+                }
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logRequest(LOG, ZooTrace.CLIENT_REQUEST_TRACE_MASK, 'F', request, "");
                 }
@@ -104,6 +113,12 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                         zks.getFollower().request(request);
                     }
                     break;
+                }
+                if (requestIndex < requestLength) {
+                    request = localRequests[requestIndex];
+                    localRequests[requestIndex++] = null;
+                } else {
+                    request = null;
                 }
             }
         } catch (Exception e) {
