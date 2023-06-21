@@ -31,7 +31,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.Record;
 import org.apache.zookeeper.CreateMode;
@@ -42,6 +41,7 @@ import org.apache.zookeeper.MultiOperationRecord;
 import org.apache.zookeeper.Op;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooDefs.OpCode;
+import org.apache.zookeeper.common.BatchedArrayBlockingQueue;
 import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.common.StringUtils;
 import org.apache.zookeeper.common.Time;
@@ -99,7 +99,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
      */
     private static boolean failCreate = false;
 
-    LinkedBlockingQueue<Request> submittedRequests = new LinkedBlockingQueue<Request>();
+    BatchedArrayBlockingQueue<Request> submittedRequests = new BatchedArrayBlockingQueue<>(10240);
 
     private final RequestProcessor nextProcessor;
     private final boolean digestEnabled;
@@ -135,9 +135,19 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
     public void run() {
         LOG.info(String.format("PrepRequestProcessor (sid:%d) started, reconfigEnabled=%s", zks.getServerId(), zks.reconfigEnabled));
         try {
+            Request[] localRequests = new Request[1024];
+            int requestLength = 0;
+            int requestIndex = 0;
+            Request request = null;
             while (true) {
                 ServerMetrics.getMetrics().PREP_PROCESSOR_QUEUE_SIZE.add(submittedRequests.size());
-                Request request = submittedRequests.take();
+                if (request == null) {
+                    requestIndex = 0;
+                    requestLength = submittedRequests.takeAll(localRequests);
+                }
+                request = localRequests[requestIndex];
+                localRequests[requestIndex++] = null;
+
                 ServerMetrics.getMetrics().PREP_PROCESSOR_QUEUE_TIME
                     .add(Time.currentElapsedTime() - request.prepQueueStartTime);
                 long traceMask = ZooTrace.CLIENT_REQUEST_TRACE_MASK;
@@ -150,9 +160,14 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 if (Request.requestOfDeath == request) {
                     break;
                 }
-
                 request.prepStartTime = Time.currentElapsedTime();
                 pRequest(request);
+                if (requestIndex < requestLength) {
+                    request = localRequests[requestIndex];
+                    localRequests[requestIndex++] = null;
+                } else {
+                    request = null;
+                }
             }
         } catch (Exception e) {
             handleException(this.getName(), e);
