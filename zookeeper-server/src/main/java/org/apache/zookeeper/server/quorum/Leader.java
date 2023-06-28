@@ -1250,8 +1250,13 @@ public class Leader extends LearnerMaster {
             shutdown(msg);
             throw new XidRolloverException(msg);
         }
-
-        byte[] data = SerializeUtils.serializeRequest(request);
+        byte[] data;
+        if (request.getSerializeData() != null) {
+            data = request.getSerializeData();
+        } else {
+            data = SerializeUtils.serializeRequest(request);
+            request.setSerializeData(data);
+        }
         proposalStats.setLastBufferSize(data.length);
         QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
 

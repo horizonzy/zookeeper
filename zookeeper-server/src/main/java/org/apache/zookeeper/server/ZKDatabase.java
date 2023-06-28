@@ -329,8 +329,13 @@ public class ZKDatabase {
                 minCommittedLog = request.zxid;
                 maxCommittedLog = request.zxid;
             }
-
-            byte[] data = SerializeUtils.serializeRequest(request);
+            byte[] data;
+            if (request.getSerializeData() != null) {
+                data = request.getSerializeData();
+            } else {
+                data = SerializeUtils.serializeRequest(request);
+                request.setSerializeData(data);
+            }
             QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
             Proposal p = new Proposal();
             p.packet = pp;

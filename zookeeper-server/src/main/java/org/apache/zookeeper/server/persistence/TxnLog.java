@@ -21,6 +21,7 @@ package org.apache.zookeeper.server.persistence;
 import java.io.Closeable;
 import java.io.IOException;
 import org.apache.jute.Record;
+import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.ServerStats;
 import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
@@ -61,6 +62,8 @@ public interface TxnLog extends Closeable {
      * @throws IOException
      */
     boolean append(TxnHeader hdr, Record r, TxnDigest digest) throws IOException;
+
+    boolean append(Request request) throws IOException;
 
     /**
      * Start reading the transaction logs
