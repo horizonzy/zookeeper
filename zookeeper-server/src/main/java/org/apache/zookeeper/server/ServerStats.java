@@ -135,6 +135,10 @@ public class ServerStats {
         return sb.toString();
     }
 
+    private static AtomicLong count = new AtomicLong();
+    private static AtomicLong time = new AtomicLong();
+    private static long maxLatency = 0;
+
     /**
      * Update request statistic. This should only be called from a request
      * that originated from that machine.
@@ -147,6 +151,11 @@ public class ServerStats {
         requestLatency.addDataPoint(latency);
         if (request.getHdr() != null) {
             // Only quorum request should have header
+            count.incrementAndGet();
+            time.addAndGet(latency);
+            if (latency > maxLatency) {
+                maxLatency = latency;
+            }
             ServerMetrics.getMetrics().UPDATE_LATENCY.add(latency);
         } else {
             // All read request should goes here
