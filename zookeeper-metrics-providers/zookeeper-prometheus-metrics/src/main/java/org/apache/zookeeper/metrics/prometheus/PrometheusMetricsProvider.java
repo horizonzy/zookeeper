@@ -330,16 +330,16 @@ public class PrometheusMetricsProvider implements MetricsProvider {
         @Override
         public Summary getSummary(String name, DetailLevel detailLevel) {
             if (detailLevel == DetailLevel.BASIC) {
-                return basicSummaries.computeIfAbsent(name, (n) -> {
-                    if (summaries.containsKey(n)) {
-                        throw new IllegalArgumentException("Already registered a non basic summary as " + n);
+                return basicSummaries.compute(name, (k, v) -> {
+                    if (v != null) {
+                        throw new IllegalArgumentException("Already registered a non basic summary as " + k);
                     }
                     return new PrometheusSummary(name, detailLevel);
                 });
             } else {
-                return summaries.computeIfAbsent(name, (n) -> {
-                    if (basicSummaries.containsKey(n)) {
-                        throw new IllegalArgumentException("Already registered a basic summary as " + n);
+                return summaries.compute(name, (k, v) -> {
+                    if (v != null) {
+                        throw new IllegalArgumentException("Already registered a non basic summary as " + k);
                     }
                     return new PrometheusSummary(name, detailLevel);
                 });
@@ -349,16 +349,16 @@ public class PrometheusMetricsProvider implements MetricsProvider {
         @Override
         public SummarySet getSummarySet(String name, DetailLevel detailLevel) {
             if (detailLevel == DetailLevel.BASIC) {
-                return basicSummarySets.computeIfAbsent(name, (n) -> {
-                    if (summarySets.containsKey(n)) {
-                        throw new IllegalArgumentException("Already registered a non basic summary set as " + n);
+                return basicSummarySets.compute(name, (k, v) -> {
+                    if (v != null) {
+                        throw new IllegalArgumentException("Already registered a non basic summary set as " + k);
                     }
                     return new PrometheusLabelledSummary(name, detailLevel);
                 });
             } else {
-                return summarySets.computeIfAbsent(name, (n) -> {
-                    if (basicSummarySets.containsKey(n)) {
-                        throw new IllegalArgumentException("Already registered a basic summary set as " + n);
+                return summarySets.compute(name, (k, v) -> {
+                    if (v != null) {
+                        throw new IllegalArgumentException("Already registered a basic summary set as " + k);
                     }
                     return new PrometheusLabelledSummary(name, detailLevel);
                 });
