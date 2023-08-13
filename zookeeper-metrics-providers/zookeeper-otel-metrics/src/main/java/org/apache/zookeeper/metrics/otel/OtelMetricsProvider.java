@@ -39,6 +39,7 @@ import io.opentelemetry.sdk.metrics.Aggregation;
 import io.opentelemetry.sdk.metrics.InstrumentSelector;
 import io.opentelemetry.sdk.metrics.InstrumentType;
 import io.opentelemetry.sdk.metrics.View;
+import org.apache.zookeeper.common.StringUtils;
 import org.apache.zookeeper.metrics.Counter;
 import org.apache.zookeeper.metrics.CounterSet;
 import org.apache.zookeeper.metrics.Gauge;
@@ -55,7 +56,9 @@ import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -70,10 +73,62 @@ public class OtelMetricsProvider implements MetricsProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(OtelMetricsProvider.class);
 
+    private static final String ROOT_NAME = "org.apache.zookeeper";
 
-    private static final String METER_NAME = "org.apache.zookeeper";
+    private static final String TIME = "time";
 
-    private static final List<Double> histogramBuckets = Arrays.asList(
+    private static final String LENGTH = "length";
+
+    private static final String BYTES = "bytes";
+    
+    private final Map<String, String> metricsUnit = new HashMap<>(); 
+    
+    {
+        metricsUnit.put("fsynctime", TIME);
+        metricsUnit.put("snapshottime", TIME);
+        metricsUnit.put("restore_time", TIME);
+        metricsUnit.put("dbinittime", TIME);
+        metricsUnit.put("readlatency", TIME);
+        metricsUnit.put("updatelatency", TIME);
+        metricsUnit.put("propagation_latency", TIME);
+        metricsUnit.put("follower_sync_time", TIME);
+        metricsUnit.put("observer_sync_time", TIME);
+        metricsUnit.put("election_time", TIME);
+        metricsUnit.put("dead_watchers_cleaner_latency", TIME);
+        metricsUnit.put("prep_processor_queue_time_ms", TIME);
+        metricsUnit.put("prep_process_time", TIME);
+        metricsUnit.put("proposal_process_time", TIME);
+        metricsUnit.put("close_session_prep_time", TIME);
+        metricsUnit.put("unavailable_time", TIME);
+        metricsUnit.put("leader_unavailable_time", TIME);
+        metricsUnit.put("time_waiting_empty_pool_in_commit_processor_read_ms", TIME);
+        metricsUnit.put("write_batch_time_in_commit_processor", TIME);
+        metricsUnit.put("read_commitproc_time_ms", TIME);
+        metricsUnit.put("write_commitproc_time_ms", TIME);
+        metricsUnit.put("local_write_committed_time_ms", TIME);
+        metricsUnit.put("server_write_committed_time_ms", TIME);
+        metricsUnit.put("commit_process_time", TIME);
+        metricsUnit.put("om_proposal_process_time_ms", TIME);
+        metricsUnit.put("om_commit_process_time_ms", TIME);
+        metricsUnit.put("read_final_proc_time_ms", TIME);
+        metricsUnit.put("write_final_proc_time_ms", TIME);
+        metricsUnit.put("proposal_latency", TIME);
+        metricsUnit.put("proposal_ack_creation_latency", TIME);
+        metricsUnit.put("commit_propagation_latency", TIME);
+        metricsUnit.put("learner_handler_qp_time_ms", TIME);
+        metricsUnit.put("startup_txns_load_time", TIME);
+        metricsUnit.put("startup_snap_load_time", TIME);
+        metricsUnit.put("sync_processor_queue_and_flush_time_ms", TIME);
+        metricsUnit.put("sync_processor_queue_time_ms", TIME);
+        metricsUnit.put("sync_processor_queue_flush_time_ms", TIME);
+        metricsUnit.put("sync_process_time", TIME);
+        metricsUnit.put("quorum_ack_latency", TIME);
+        metricsUnit.put("ack_latency", TIME);
+        metricsUnit.put("request_throttle_queue_time_ms", TIME);
+        metricsUnit.put("socket_closing_time", TIME);
+    }
+
+    private static final List<Double> timeBuckets = Arrays.asList(
             0.1, 0.2, 0.5,
             1.0, 2.0, 5.0,
             10.0, 20.0, 50.0,
@@ -82,34 +137,117 @@ public class OtelMetricsProvider implements MetricsProvider {
             10_000.0, 20_000.0, 50_000.0
     );
 
+    {
+        metricsUnit.put("connection_token_deficit", LENGTH);
+        metricsUnit.put("inflight_snap_count", LENGTH);
+        metricsUnit.put("inflight_diff_count", LENGTH);
+        metricsUnit.put("node_created_watch_count", LENGTH);
+        metricsUnit.put("node_deleted_watch_count", LENGTH);
+        metricsUnit.put("node_changed_watch_count", LENGTH);
+        metricsUnit.put("node_children_watch_count", LENGTH);
+        metricsUnit.put("prep_processor_queue_size", LENGTH);
+        metricsUnit.put("requests_in_session_queue", LENGTH);
+        metricsUnit.put("pending_session_queue_size", LENGTH);
+        metricsUnit.put("reads_after_write_in_session_queue", LENGTH);
+        metricsUnit.put("reads_issued_from_session_queue", LENGTH);
+        metricsUnit.put("session_queues_drained", LENGTH);
+        metricsUnit.put("concurrent_request_processing_in_commit_processor", LENGTH);
+        metricsUnit.put("read_commit_proc_req_queued", LENGTH);
+        metricsUnit.put("write_commit_proc_req_queued", LENGTH);
+        metricsUnit.put("commit_commit_proc_req_queued", LENGTH);
+        metricsUnit.put("read_commit_proc_issued", LENGTH);
+        metricsUnit.put("write_commit_proc_issued", LENGTH);
+        metricsUnit.put("learner_handler_qp_size", LENGTH);
+        metricsUnit.put("startup_txns_loaded", LENGTH);
+        metricsUnit.put("sync_processor_queue_size", LENGTH);
+        metricsUnit.put("sync_processor_batch_size", LENGTH);
+        metricsUnit.put("learner_request_processor_queue_size", LENGTH);
+    }
+
+    private static final List<Double> lengthBuckets = Arrays.asList(
+            1.0, 2.0, 5.0,
+            10.0, 20.0, 50.0,
+            100.0, 200.0, 500.0,
+            1_000.0, 2_000.0, 5_000.0,
+            10_000.0, 50_000.0, 100_000.0
+    );
+
+    {
+        metricsUnit.put("write_per_namespace", BYTES);
+        metricsUnit.put("read_per_namespace", BYTES);
+        metricsUnit.put("netty_queued_buffer_capacity", BYTES);
+    }
+
+    private static final List<Double> bytesBuckets = Arrays.asList(
+            1.0, 2.0, 4.0,
+            8.0, 16.0, 32.0,
+            64.0, 128.0, 256.0,
+            512.0, 1024.0, 2048.0,
+            4096.0, 8192.0, 16384.0,
+            32768.0, 65536.0, 131072.0,
+            262144.0, 524288.0, 1048576.0,
+            2097152.0, 4194304.0, 8388608.0,
+            16777216.0, 33554432.0, 67108864.0,
+            134217728.0, 268435456.0, 536870912.0,
+            1073741824.0
+    );
+
     private final OpenTelemetry openTelemetry;
 
-    final Meter meter;
+    private final Meter meter;
 
     private boolean exportJvmInfo = true;
+
+    private final OtelContext rootContext;
 
     public OtelMetricsProvider() {
         AutoConfiguredOpenTelemetrySdk sdk = AutoConfiguredOpenTelemetrySdk.builder()
                 .addMeterProviderCustomizer(
-                        (sdkMeterProviderBuilder, configProperties) ->
-                                sdkMeterProviderBuilder.registerView(
-                                        InstrumentSelector.builder()
-                                                .setMeterName(METER_NAME)
-                                                .setType(InstrumentType.HISTOGRAM)
-                                                .build(),
-                                        View.builder()
-                                                .setAggregation(Aggregation.explicitBucketHistogram(histogramBuckets))
-                                                .build())
+                        (sdkMeterProviderBuilder, configProperties) -> {
+                            sdkMeterProviderBuilder.registerView(
+                                    InstrumentSelector.builder()
+                                            .setMeterName(ROOT_NAME)
+                                            .setUnit(TIME)
+                                            .setType(InstrumentType.HISTOGRAM)
+                                            .build(),
+                                    View.builder()
+                                            .setAggregation(Aggregation.explicitBucketHistogram(timeBuckets))
+                                            .build());
+                            sdkMeterProviderBuilder.registerView(
+                                    InstrumentSelector.builder()
+                                            .setMeterName(ROOT_NAME)
+                                            .setUnit(LENGTH)
+                                            .setType(InstrumentType.HISTOGRAM)
+                                            .build(),
+                                    View.builder()
+                                            .setAggregation(Aggregation.explicitBucketHistogram(lengthBuckets))
+                                            .build());
+                            sdkMeterProviderBuilder.registerView(
+                                    InstrumentSelector.builder()
+                                            .setMeterName(ROOT_NAME)
+                                            .setUnit(BYTES)
+                                            .setType(InstrumentType.HISTOGRAM)
+                                            .build(),
+                                    View.builder()
+                                            .setAggregation(Aggregation.explicitBucketHistogram(bytesBuckets))
+                                            .build());
+                            return sdkMeterProviderBuilder;
+                        }
 
                 ).build();
         this.openTelemetry = sdk.getOpenTelemetrySdk();
-        this.meter = openTelemetry.getMeter(METER_NAME);
+        this.meter = openTelemetry.getMeter(ROOT_NAME);
+        rootContext = new OtelContext(meter, "");
     }
 
 
     @Override
     public void configure(Properties configuration) throws MetricsProviderLifeCycleException {
         this.exportJvmInfo = Boolean.parseBoolean(configuration.getProperty("exportJvmInfo", "true"));
+    }
+
+    @Override
+    public void start() throws MetricsProviderLifeCycleException {
         if (exportJvmInfo) {
             // Include standard JVM stats
             MemoryPools.registerObservers(openTelemetry);
@@ -128,18 +266,12 @@ public class OtelMetricsProvider implements MetricsProvider {
     }
 
     @Override
-    public void start() throws MetricsProviderLifeCycleException {
-
-    }
-
-    @Override
     public MetricsContext getRootContext() {
-        return null;
+        return rootContext;
     }
 
     @Override
     public void stop() {
-
     }
 
     @Override
@@ -149,13 +281,13 @@ public class OtelMetricsProvider implements MetricsProvider {
 
     @Override
     public void resetAllValues() {
-
+        // not supported on otel
     }
 
     private class OtelContext implements MetricsContext {
 
-        private final OtelMetricsProvider provider;
         private final String name;
+        private final Meter meter;
 
         private final ConcurrentMap<String, OtelGaugeWrapper> gauges = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, OtelLabelledGaugeWrapper> gaugeSets = new ConcurrentHashMap<>();
@@ -164,14 +296,14 @@ public class OtelMetricsProvider implements MetricsProvider {
         private final ConcurrentMap<String, OtelSummary> summaries = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, OtelLableledSummary> summarySets = new ConcurrentHashMap<>();
 
-        private OtelContext(OtelMetricsProvider provider, String name) {
-            this.provider = provider;
+        private OtelContext(Meter meter, String name) {
+            this.meter = meter;
             this.name = name;
         }
 
         @Override
         public MetricsContext getContext(String name) {
-            return new OtelContext(provider, completeName(name));
+            return new OtelContext(meter, completeName(name));
         }
 
         private String completeName(String subName) {
@@ -183,14 +315,14 @@ public class OtelMetricsProvider implements MetricsProvider {
 
         @Override
         public Counter getCounter(String name) {
-            return counters.computeIfAbsent(completeName(name), k -> new OtelCounter(provider.meter, name));
+            return counters.computeIfAbsent(completeName(name), k -> new OtelCounter(meter, name));
         }
 
 
         @Override
         public CounterSet getCounterSet(final String name) {
             Objects.requireNonNull(name, "Cannot register a CounterSet with null name");
-            return counterSets.computeIfAbsent(completeName(name), k -> new OtelCounterSet(provider.meter, name));
+            return counterSets.computeIfAbsent(completeName(name), k -> new OtelCounterSet(meter, name));
         }
 
         /**
@@ -209,7 +341,7 @@ public class OtelMetricsProvider implements MetricsProvider {
 
         @Override
         public void unregisterGauge(String name) {
-            OtelGaugeWrapper existing = gauges.remove(name);
+            OtelGaugeWrapper existing = gauges.remove(completeName(name));
             if (existing != null) {
                 existing.unregister();
             }
@@ -219,16 +351,14 @@ public class OtelMetricsProvider implements MetricsProvider {
         public void registerGaugeSet(final String name, final GaugeSet gaugeSet) {
             Objects.requireNonNull(name, "Cannot register a GaugeSet with null name");
             Objects.requireNonNull(gaugeSet, "Cannot register a null GaugeSet for " + name);
-
-            gaugeSets.compute(name, (id, prev) ->
-                    new OtelLabelledGaugeWrapper(meter, name, gaugeSet, prev != null ? prev.inner : null));
+            gaugeSets.compute(completeName(name), (id, prev) ->
+                    new OtelLabelledGaugeWrapper(meter, completeName(name), gaugeSet, prev != null ? prev.inner : null));
         }
 
         @Override
         public void unregisterGaugeSet(final String name) {
             Objects.requireNonNull(name, "Cannot unregister GaugeSet with null name");
-
-            final OtelLabelledGaugeWrapper existing = gaugeSets.remove(name);
+            final OtelLabelledGaugeWrapper existing = gaugeSets.remove(completeName(name));
             if (existing != null) {
                 existing.unregister();
             }
@@ -236,23 +366,36 @@ public class OtelMetricsProvider implements MetricsProvider {
 
         @Override
         public Summary getSummary(String name, DetailLevel detailLevel) {
-            return summaries.compute(name, (k, v) -> {
+            return summaries.compute(completeName(name), (k, v) -> {
                 if (v != null) {
                     throw new IllegalArgumentException("Already registered a non basic summary as " + k);
                 }
-                return new OtelSummary(meter, name);
+                return new OtelSummary(meter, completeName(name), getUnit(name));
             });
         }
 
         @Override
         public SummarySet getSummarySet(String name, DetailLevel detailLevel) {
-            return summarySets.computeIfAbsent(name, (n) -> {
+            return summarySets.computeIfAbsent(completeName(name), (n) -> {
                 if (summarySets.containsKey(n)) {
                     throw new IllegalArgumentException("Already registered a basic summary set as " + n);
                 }
-                return new OtelLableledSummary(meter, name);
+                return new OtelLableledSummary(meter, completeName(name), getUnit(name));
             });
         }
+    }
+
+    private String getUnit(String name) {
+        String unit = metricsUnit.get(name);
+        if (StringUtils.isEmpty(unit)) {
+            //Use time as the default unit.
+            return TIME;
+        }
+        if (!TIME.equals(unit) && !LENGTH.equals(unit) && !BYTES.equals(unit)) {
+            LOG.warn("Unknown metrics unit: {}", name);
+            return TIME;
+        }
+        return unit;
     }
 
     private AttributesMap buildAttributeMap(String key) {
@@ -343,8 +486,8 @@ public class OtelMetricsProvider implements MetricsProvider {
 
         private final DoubleHistogram histogram;
 
-        public OtelSummary(Meter meter, String name) {
-            histogram = meter.histogramBuilder(name).build();
+        public OtelSummary(Meter meter, String name, String unit) {
+            histogram = meter.histogramBuilder(name).setUnit(unit).build();
         }
 
         @Override
@@ -357,8 +500,8 @@ public class OtelMetricsProvider implements MetricsProvider {
 
         private final DoubleHistogram histogram;
 
-        public OtelLableledSummary(Meter meter, String name) {
-            histogram = meter.histogramBuilder(name).build();
+        public OtelLableledSummary(Meter meter, String name, String unit) {
+            histogram = meter.histogramBuilder(name).setUnit(unit).build();
         }
 
         @Override
