@@ -80,8 +80,10 @@ public class OtelMetricsProvider implements MetricsProvider {
     private static final String LENGTH = "length";
 
     private static final String BYTES = "bytes";
-    
-    private final Map<String, String> metricsUnit = new HashMap<>(); 
+
+    private static final String CUSTOM_METRICS_PREFIX = "otel.metrics.unit.";
+
+    private final Map<String, String> metricsUnit = new HashMap<>();
     
     {
         metricsUnit.put("fsynctime", TIME);
@@ -244,6 +246,11 @@ public class OtelMetricsProvider implements MetricsProvider {
     @Override
     public void configure(Properties configuration) throws MetricsProviderLifeCycleException {
         this.exportJvmInfo = Boolean.parseBoolean(configuration.getProperty("exportJvmInfo", "true"));
+        configuration.forEach((k, v) -> {
+            if (k instanceof String && ((String) k).startsWith(CUSTOM_METRICS_PREFIX)) {
+                metricsUnit.put(((String) k).substring(CUSTOM_METRICS_PREFIX.length()), (String) v);
+            }
+        });
     }
 
     @Override
